@@ -263,3 +263,14 @@ mGBA contains the following third-party libraries:
 - [SQLite3](https://www.sqlite.org), which is public domain.
 
 If you are a game publisher and wish to license mGBA for commercial usage, please email [licensing@mgba.io](mailto:licensing@mgba.io) for more information.
+
+### Libretro Core Changes
+
+This fork includes a fast-forward implementation for the libretro core that matches gpSP's behavior:
+
+- **Fast Forward**: Hold R2 to fast-forward, release for normal speed
+- **Turbo Buttons** (preserved): X = Turbo A, Y = Turbo B, L2 = Turbo L
+- **Remapping**: All buttons remappable in RetroArch Quick Menu → Controls → Port 1 Controls
+- **Backend**: Uses `RETRO_ENVIRONMENT_SET_FASTFORWARDING_OVERRIDE` API (same as gpSP)
+
+Build instructions for ARM64 (Anbernic 34xxH / MUOS): see [BUILD_ARM64.md](BUILD_ARM64.md)
