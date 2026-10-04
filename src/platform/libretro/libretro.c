@@ -109,6 +109,11 @@ static int32_t audioLowPassRange = 0;
 static int32_t audioLowPassLeftPrev = 0;
 static int32_t audioLowPassRightPrev = 0;
 
+/* Fast forward override */
+static bool libretro_supports_ff_override = false;
+static bool libretro_ff_enabled = false;
+static bool libretro_ff_enabled_prev = false;
+
 static const int keymap[] = {
 	RETRO_DEVICE_ID_JOYPAD_A,
 	RETRO_DEVICE_ID_JOYPAD_B,
@@ -353,6 +358,28 @@ static void _doDeferredSetup(void) {
 	deferredSetup = false;
 }
 
+/* Fast forward override */
+static void _set_fastforward_override(bool fastforward) {
+	if (!libretro_supports_ff_override) {
+		return;
+	}
+
+	struct retro_fastforwarding_override ff_override;
+	ff_override.ratio = -1.0f;
+	ff_override.notification = true;
+
+	if (fastforward) {
+		ff_override.fastforward = true;
+		ff_override.inhibit_toggle = true;
+	} else {
+		ff_override.fastforward = false;
+		ff_override.inhibit_toggle = false;
+	}
+
+	environCallback(RETRO_ENVIRONMENT_SET_FASTFORWARDING_OVERRIDE, &ff_override);
+	libretro_ff_enabled = fastforward;
+}
+
 unsigned retro_api_version(void) {
 	return RETRO_API_VERSION;
 }
@@ -463,9 +490,39 @@ void retro_init(void) {
 		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3, "Darken Solar Sensor" },
 		{ 0 }
 	};
-	environCallback(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, &inputDescriptors);
+
+	struct retro_input_descriptor inputDescriptorsFF[] = {
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "A" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "B" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X, "Turbo A" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y, "Turbo B" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "Right" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "Left" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "Up" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "Down" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2, "Turbo L" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3, "Brighten Solar Sensor" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3, "Darken Solar Sensor" },
+		{ 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2, "Fast Forward" },
+		{ 0 }
+	};
 
 	useBitmasks = environCallback(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL);
+
+	libretro_supports_ff_override = false;
+	if (environCallback(RETRO_ENVIRONMENT_SET_FASTFORWARDING_OVERRIDE, NULL)) {
+		libretro_supports_ff_override = true;
+	}
+
+	if (libretro_supports_ff_override) {
+		environCallback(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, &inputDescriptorsFF);
+	} else {
+		environCallback(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, &inputDescriptors);
+	}
 
 	// TODO: RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME when BIOS booting is supported
 
@@ -536,6 +593,10 @@ void retro_deinit(void) {
 	sensorsInitDone = false;
 	useBitmasks = false;
 
+	libretro_supports_ff_override = false;
+	libretro_ff_enabled = false;
+	libretro_ff_enabled_prev = false;
+
 	audioLowPassEnabled = false;
 	audioLowPassRange = 0;
 	audioLowPassLeftPrev = 0;
@@ -589,6 +650,15 @@ void retro_run(void) {
 		}
 	}
 	core->setKeys(core, keys);
+
+	/* Handle fast forward button (gpSP-style) */
+	libretro_ff_enabled = libretro_supports_ff_override &&
+		!!inputCallback(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2);
+
+	if (libretro_ff_enabled != libretro_ff_enabled_prev) {
+		_set_fastforward_override(libretro_ff_enabled);
+		libretro_ff_enabled_prev = libretro_ff_enabled;
+	}
 
 	if (!luxSensorUsed) {
 		static bool wasAdjustingLux = false;
@@ -1004,6 +1074,11 @@ void retro_unload_game(void) {
 	if (!core) {
 		return;
 	}
+
+	if (libretro_ff_enabled) {
+		_set_fastforward_override(false);
+	}
+
 	mCoreConfigDeinit(&core->config);
 	core->deinit(core);
 	mappedMemoryFree(data, dataSize);

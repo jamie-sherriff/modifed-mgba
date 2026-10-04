@@ -1,0 +1,35 @@
+# Dockerfile.build - Cross-compile mgba libretro core for ARM (armhf)
+# Usage: DOCKER_BUILDKIT=1 docker build --target output --output type=local,dest=./build-output -f Dockerfile.build .
+
+# ---- Stage 1: Build environment (ARM cross-compiler) ----
+FROM debian:bookworm AS builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+# Add ARM architecture for cross-compilation libraries
+RUN dpkg --add-architecture armhf && \
+    apt-get update && apt-get install -y \
+    git cmake build-essential \
+    gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
+    libpng-dev:armhf zlib1g-dev:armhf \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . .
+
+# Build libretro core only (no Qt, no SDL frontend)
+RUN mkdir -p build-armhf && cd build-armhf && \
+    cmake .. \
+      -DCMAKE_TOOLCHAIN_FILE=/src/toolchain-armhf.cmake \
+      -DBUILD_LIBRETRO=ON \
+      -DBUILD_QT=OFF \
+      -DBUILD_SDL=OFF \
+      -DBUILD_STATIC=OFF \
+      -DBUILD_SHARED=ON \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DDISABLE_DEPS=ON \
+      -DMINIMAL_CORE=ON && \
+    make -j$(nproc) mgba_libretro
+
+# ---- Stage 2: Minimal output stage ----
+FROM scratch AS output
+COPY --from=builder /src/build-armhf/mgba_libretro.so /mgba_libretro.so
